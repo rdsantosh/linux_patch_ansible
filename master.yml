@@ -1,0 +1,48 @@
+---
+- name: Patching Linux servers
+  hosts: all
+  become: true
+  vars:
+    # Specify package manager command depending on the OS
+    package_manager: "{{ 'yum' if ansible_os_family == 'RedHat' else 'apt' }}"
+    update_cache_command: "{{ package_manager }} update -y"  # For RedHat-based and Debian-based systems
+    upgrade_all_command: "{{ package_manager }} upgrade -y"  # For Debian-based systems
+    upgrade_all_redhat_command: "{{ package_manager }} update -y"  # For RedHat-based systems
+
+  tasks:
+    - name: Update package repository cache
+      command: "{{ update_cache_command }}"
+      when: ansible_os_family == 'Debian' or ansible_os_family == 'RedHat'
+
+    - name: Upgrade all packages (Debian-based)
+      command: "{{ upgrade_all_command }}"
+      when: ansible_os_family == 'Debian'
+
+    - name: Upgrade all packages (RedHat-based)
+      command: "{{ upgrade_all_redhat_command }}"
+      when: ansible_os_family == 'RedHat'
+
+    - name: Reboot the server if necessary (Debian-based)
+      shell: "sleep 5 && reboot"
+      async: 1
+      poll: 0
+      when: ansible_pkg_mgr == 'apt' and (ansible_distribution_version | version_compare('14.04', '>='))
+      register: reboot_cmd
+      ignore_errors: true
+
+    - name: Reboot the server if necessary (RedHat-based)
+      shell: "sleep 5 && reboot"
+      async: 1
+      poll: 0
+      when: ansible_pkg_mgr == 'yum' or ansible_pkg_mgr == 'dnf'
+      register: reboot_cmd
+      ignore_errors: true
+
+    - name: Wait for server to reboot
+      wait_for:
+        host: "{{ ansible_host }}"
+        port: 22
+        delay: 60
+        timeout: 300
+        state: started
+      when: reboot_cmd is changed
